@@ -16,6 +16,9 @@ import nltk
 # nltk.download('punkt_tab')
 from nltk.tokenize import word_tokenize
 
+import mmh3
+import unicodedata
+
 # 模型初始化
 model_path = "./data/lid.176.bin" 
 lang_model = fasttext.load_model(model_path)
@@ -172,8 +175,116 @@ def exact_line_deduplication(
             for line in dst_lines:
                 fp.write(line)
             
-            
 
+def normalize_text(text: str) -> str:
+    """规范化文本：小写、去标点、规范化空格、去重音、Unicode 规范化"""
+    # 转换为小写
+    text = text.lower()
+    
+    # 移除标点符号（保留单词间的空格）
+    text = re.sub(r'[^\w\s]', '', text)
+    
+    # 规范化空格（多个空格合并为一个）
+    text = re.sub(r'\s+', ' ', text).strip()
+    
+    # Unicode NFD 规范化并去除重音
+    text = unicodedata.normalize('NFD', text)
+    text = ''.join(c for c in text if unicodedata.category(c) != 'Mn')
+    
+    return text
+
+def generate_ngrams(text: str, n: int):
+    """生成文本的 n-gram 集合"""
+    words = word_tokenize(text)
+    ngrams = set()
+    if len(words) < n:
+        ngrams.add(' '.join(words))
+        return ngrams
+    
+    for i in range(len(words) - n + 1):
+        ngram = ' '.join(words[i:i + n])
+        ngrams.add(ngram)
+    
+    return ngrams
+
+def minhash_deduplication(
+    input_files: list[os.PathLike],
+    num_hashes: int,
+    num_bands: int,
+    ngrams: int,
+    jaccard_threshold: float,
+    output_directory: os.PathLike,
+):
+    if not os.path.exists(output_directory):
+        os.makedirs(output_directory)
+
+    def compute_jaccard(A, B):
+        intersection = len(A & B)  # @inspect intersection
+        union = len(A | B)  # @inspect union
+        return intersection / union
+
+    rows_per_band = num_hashes // num_bands
+    buckets = defaultdict(set)
+    remove_dict = defaultdict(int)
+    ngrams_dict = defaultdict(set)
+    for input_file in input_files:
+        with open(input_file, 'r') as fp:
+            content = fp.read()
+            text = normalize_text(content)
+            ngrams_list = generate_ngrams(text, ngrams)
+            ngrams_dict[input_file] = ngrams_list
+            
+            signature = []
+            for idx in range(num_hashes):
+                signature.append(min(mmh3.hash(cur_ngrams, idx) for cur_ngrams in ngrams_list))
+                
+            for band_idx in range(num_bands):
+                start = band_idx * rows_per_band
+                end = start + rows_per_band
+                band_signature = tuple(signature[start:end])
+                
+                # 创建桶键（条带索引 + 条带签名哈希）
+                bucket_key = (band_idx, band_signature)
+                buckets[bucket_key].add(input_file)
+
+    # 查找候选重复对
+    for buckets_files in buckets.values():
+        if len(input_files) > 1:
+            buckets_files = list(buckets_files)
+            for i in range(len(buckets_files)):
+                for j in range(i + 1, len(buckets_files)):
+                    similarity = compute_jaccard(ngrams_dict[buckets_files[i]], ngrams_dict[buckets_files[j]])
+                    # print(similarity, buckets_files[i], buckets_files[j])
+                    if similarity >= jaccard_threshold:
+                        # 保留第一个、删除第二个
+                        # remove_dict[buckets_files[i]] += 1
+                        remove_dict[buckets_files[j]] += 1              
+
+    # 写入
+    # print(remove_dict)
+    for input_file in input_files:
+        # print(input_file)
+        if input_file in remove_dict.keys():
+            continue
+        dst_path = os.path.join(output_directory, os.path.basename(input_file))
+        dst_lines = list()
+        with open(input_file, 'r') as fp:
+            lines = fp.readlines()
+            for line in lines:
+                dst_lines.append(line)
+                    
+        # print(input_file, dst_path)            
+        with open(dst_path, 'w') as fp:
+            for line in dst_lines:
+                fp.write(line)
+                    
+
+
+                
+                
+                
+
+    
         
 
     

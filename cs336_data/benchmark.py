@@ -7,6 +7,7 @@ from fastwarc.warc import ArchiveIterator, WarcRecordType
 from cs336_data.data import html2str, identify_language
 from cs336_data.data import mask_emails, mask_phones, mask_ip
 from cs336_data.data import classify_nsfw, classify_toxic_speech, gopher_quality_filter
+from cs336_data.data import gopher_quality_filter, exact_line_deduplication, minhash_deduplication
 
 def parse_args():
     parser = argparse.ArgumentParser(description='benchmark')
@@ -81,18 +82,23 @@ def clean_extracted_text(text):
 
 if __name__ == "__main__":
     warc_path = './data/CC-MAIN-20250417135010-20250417165010-00065.warc.gz'
+    dedup_pre_dir = './data/dedup_pre'
+    dedup_post_dir = './data/dedup_post'
+
     proc_idx = 0
-    proc_num = 100
     for html_bytes, url in read_warc_file(warc_path):
         if html_bytes is not None:
             src_str = html2str(html_bytes)
+            # with open('./data/dedup_pre_en/68.txt', 'r') as fp:
+            #     src_str = fp.read()
+            
             src_str = clean_extracted_text(src_str)
             
             # 打印en
-            # language, confidence = identify_language(src_str)
+            language, confidence = identify_language(src_str)
             # if language == 'en':
-            #     print(proc_idx, src_str[:200].replace('\n', ' ').strip(), language, confidence)
-            #     proc_idx += 1
+            print(proc_idx, language, confidence)
+                # proc_idx += 1
 
             # 打印email、phone、ip过滤结构
             # rst_str, num_masked_emails = mask_emails(src_str)
@@ -102,22 +108,22 @@ if __name__ == "__main__":
             #     print(proc_idx, \
             #           src_str[:200].replace('\n', ' ').strip(), "=>", \
             #           rst_str[:200].replace('\n', ' ').strip())
-            #     proc_idx += 1
 
             # 打印有害内容
-            # nsfw_rst, nsfw_conf = classify_nsfw(src_str)
-            # toxic_rst, toxic_conf = classify_toxic_speech(src_str)
+            nsfw_rst, nsfw_conf = classify_nsfw(src_str)
+            toxic_rst, toxic_conf = classify_toxic_speech(src_str)
             # if nsfw_rst == "nsfw" or toxic_rst == "toxic":
-            #     print(proc_idx, src_str[:500].replace('\n', ' ').strip(), nsfw_rst, nsfw_conf, toxic_rst, toxic_conf, url)
-            #     proc_idx += 1
+            print(proc_idx, nsfw_rst, nsfw_conf, toxic_rst, toxic_conf, url)
+                # proc_idx += 1
 
             # 打印指令过滤
             not_filter_flg = gopher_quality_filter(src_str)
-            if not not_filter_flg:
-                print(proc_idx, src_str[:200].replace('\n', ' ').strip(), not_filter_flg)
-                proc_idx += 1
-                    
-            if proc_idx >= proc_num:
-                break
+            # if not not_filter_flg:
+            print(proc_idx, not_filter_flg)
+                # proc_idx += 1
+
+            proc_idx += 1
+            # if proc_idx >= proc_num:
+            break
 
     
